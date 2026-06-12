@@ -1,0 +1,24 @@
+{
+    "id": "com.canbox.launcher",
+    "name": "Launcher",
+    "alias": "launcher",
+    "version": "1.0.0",
+    "description": "Quick launcher for Canbox - search and launch apps",
+    "author": "lizl6",
+    "license": "Apache-2.0",
+    "logo": "logo.png",
+    "main": "index.html",
+    "window": {
+        "width": 700,
+        "height": 400,
+        "frame": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "transparent": true,
+        "resizable": false,
+        "center": true,
+        "webPreferences": {
+            "preload": "preload.js"
+        }
+    }
+}

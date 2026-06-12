@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea"/>
+      <stop offset="100%" style="stop-color:#764ba2"/>
+    </linearGradient>
+    <linearGradient id="rocket" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff"/>
+      <stop offset="100%" style="stop-color:#e8e0f0"/>
+    </linearGradient>
+  </defs>
+  <!-- 圆角矩形背景 -->
+  <rect x="32" y="32" width="448" height="448" rx="96" ry="96" fill="url(#bg)"/>
+  <!-- 火箭主体 -->
+  <g transform="translate(256,256)">
+    <!-- 尾焰 -->
+    <path d="M-36,100 C-36,140 -24,176 0,190 C24,176 36,140 36,100 L36,60 C24,45 12,38 0,35 C-12,38 -24,45 -36,60 Z"
+          fill="#ffd700" opacity="0.9"/>
+    <path d="M-28,100 C-28,135 -18,168 0,180 C18,168 28,135 28,100 L28,64 C18,52 10,46 0,43 C-10,46 -18,52 -28,64 Z"
+          fill="#ff6b35" opacity="0.85"/>
+    <!-- 火箭机身 -->
+    <path d="M-52,30 C-52,-40 -40,-130 0,-150 C40,-130 52,-40 52,30 L52,120 C52,135 40,140 0,145 C-40,140 -52,135 -52,120 Z"
+          fill="url(#rocket)"/>
+    <!-- 左翼 -->
+    <path d="M-52,20 C-80,40 -100,90 -95,120 C-90,150 -70,140 -52,120 Z"
+          fill="#c4b5fd" opacity="0.9"/>
+    <!-- 右翼 -->
+    <path d="M52,20 C80,40 100,90 95,120 C90,150 70,140 52,120 Z"
+          fill="#c4b5fd" opacity="0.9"/>
+    <!-- 舷窗 -->
+    <circle cx="0" cy="-20" r="22" fill="#667eea"/>
+    <circle cx="0" cy="-20" r="16" fill="#a78bfa" opacity="0.8"/>
+    <circle cx="-6" cy="-24" r="5" fill="#ffffff" opacity="0.9"/>
+    <!-- 速度线 -->
+    <line x1="-80" y1="50" x2="-130" y2="70" stroke="#ffffff" stroke-width="5" stroke-linecap="round" opacity="0.4"/>
+    <line x1="80" y1="50" x2="130" y2="70" stroke="#ffffff" stroke-width="5" stroke-linecap="round" opacity="0.4"/>
+    <line x1="-70" y1="80" x2="-115" y2="100" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.3"/>
+    <line x1="70" y1="80" x2="115" y2="100" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.3"/>
+  </g>
+</svg>
