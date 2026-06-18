@@ -308,9 +308,19 @@ watch(allApps, (apps) => {
     apps.forEach(app => loadAppIcon(app));
 }, { deep: false });
 
+/**
+ * 窗口失去焦点时隐藏启动器
+ */
+function handleWindowBlur() {
+    hideLauncher();
+}
+
 onMounted(async () => {
     // 注册全局键盘事件
     document.addEventListener('keydown', handleKeydown);
+
+    // 窗口失去焦点时隐藏启动器
+    window.addEventListener('blur', handleWindowBlur);
 
     // 加载配置（canbox electronStore）
     await loadConfig();
@@ -340,6 +350,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
     document.removeEventListener('keydown', handleKeydown);
+    window.removeEventListener('blur', handleWindowBlur);
 });
 </script>
 

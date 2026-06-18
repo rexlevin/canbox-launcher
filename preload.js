@@ -71,12 +71,14 @@ const launcherApi = {
 
     /**
      * 隐藏 launcher 窗口
-     * 通过 IPC 通知 canbox 主进程隐藏此 APP 窗口
+     * 通过通用窗口控制 IPC 通知 canbox 主进程隐藏此 APP 窗口
      */
     hide: () => {
-        ipcRenderer.invoke('launcher:hide').catch(() => {
-            // fallback: 降级为关闭窗口
-            ipcRenderer.invoke('msg-electronStore', { action: 'hide-window' }).catch(() => {});
+        ipcRenderer.invoke('app-window-control', {
+            appId: 'com.canbox.launcher',
+            action: 'hide'
+        }).catch((err) => {
+            console.error('[Launcher preload] 隐藏窗口失败:', err);
         });
     },
 
