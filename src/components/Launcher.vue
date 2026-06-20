@@ -259,12 +259,14 @@ function resetState() {
 }
 
 /**
- * 获取 canbox store API（APP 运行时通过 window.canbox.store 暴露）
+ * 获取 canbox store API
+ * 渲染进程中 window.canbox 不可直接访问（仅在预加载隔离世界可用），
+ * 实际通过 __launcherApi.store 桥接（preload 里用 canbox.store 实现）
  * @returns {Object|null}
  */
 function getCanboxStore() {
-    if (typeof window !== 'undefined' && window.canbox && window.canbox.store) {
-        return window.canbox.store;
+    if (typeof window !== 'undefined' && window.__launcherApi && window.__launcherApi.store) {
+        return window.__launcherApi.store;
     }
     return null;
 }

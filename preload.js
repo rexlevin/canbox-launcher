@@ -8,17 +8,18 @@
  * - globalThis.__launcherApi.launchApp(app)   启动应用
  * - globalThis.__launcherApi.readIcon(path)   读取图标为 base64
  * - globalThis.__launcherApi.hide()           隐藏 launcher 窗口
- * - globalThis.__launcherApi.onShown(cb)      监听窗口显示事件
+ * - globalThis.__launcherApi.store.get/set    配置存储（基于 canbox electronStore）
  *
  * 依赖：
+ * - canbox 全局 API（app.preload.js 注入）: canbox.windowControl, canbox.store
  * - modules/systemAppReader.js (getSystemApplications, readIconAsBase64)
  * - Node.js child_process (exec)
- * - Electron ipcRenderer (与 canbox 主进程通信)
  */
-
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge } = require('electron');
 const { exec } = require('child_process');
 const { getSystemApplications, readIconAsBase64 } = require('./modules/systemAppReader');
+
+canbox.hello();
 
 const launcherApi = {
     /**
@@ -71,25 +72,39 @@ const launcherApi = {
 
     /**
      * 隐藏 launcher 窗口
-     * 通过通用窗口控制 IPC 通知 canbox 主进程隐藏此 APP 窗口
+     * 使用 canbox.windowControl API（app.preload.js 注入的全局 canbox）
      */
     hide: () => {
-        ipcRenderer.invoke('app-window-control', {
-            appId: 'com.canbox.launcher',
-            action: 'hide'
-        }).catch((err) => {
+        canbox.windowControl.hide().catch((err) => {
             console.error('[Launcher preload] 隐藏窗口失败:', err);
         });
     },
 
     /**
-     * 监听窗口显示事件
-     * @param {Function} callback
+     * 配置存储（基于 canbox electronStore）
+     * 在预加载脚本中使用 canbox.store API（app.preload.js 注入的全局 canbox）
      */
-    onShown: (callback) => {
-        ipcRenderer.on('launcher:shown', () => {
-            if (typeof callback === 'function') callback();
-        });
+    store: {
+        /**
+         * 读取配置值
+         * @param {string} name - store 名称
+         * @param {string} key - 配置键
+         * @returns {Promise<any>}
+         */
+        get: (name, key) => {
+            return canbox.store.get(name, key);
+        },
+
+        /**
+         * 写入配置值
+         * @param {string} name - store 名称
+         * @param {string} key - 配置键
+         * @param {*} value - 配置值
+         * @returns {Promise<void>}
+         */
+        set: (name, key, value) => {
+            return canbox.store.set(name, key, value);
+        }
     }
 };
 
