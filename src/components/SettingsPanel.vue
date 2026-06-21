@@ -14,7 +14,6 @@
                         placeholder="点击设置快捷键"
                         @focus="startCapture"
                         @blur="stopCapture"
-                        @keydown="handleKeyCapture"
                     />
                     <button
                         v-if="shortcutDisplay"
@@ -158,20 +157,22 @@ function getStoreApi() {
 }
 
 /**
- * 开始捕获快捷键
+ * 开始捕获快捷键（监听全局 keydown）
  */
 function startCapture() {
     capturing = true;
     captureError.value = '';
     shortcutDisplay.value = '按下组合键...';
+    window.addEventListener('keydown', onGlobalKeydown, true);
 }
 
 /**
- * 停止捕获快捷键
+ * 停止捕获快捷键（移除全局 keydown 监听）
  */
 function stopCapture() {
     capturing = false;
     captureError.value = '';
+    window.removeEventListener('keydown', onGlobalKeydown, true);
     if (shortcutDisplay.value === '按下组合键...') {
         // 用户没按任何键，恢复显示
         loadShortcut();
@@ -202,12 +203,12 @@ function validateAccelerator(accel) {
 }
 
 /**
- * 处理按键捕获
+ * 全局 keydown 监听器（capturing 期间由 startCapture 注册到 window）
  */
-function handleKeyCapture(event) {
-    if (!capturing) return;
-
-    event.preventDefault();
+function onGlobalKeydown(event) {
+    if (event.target === shortcutInput.value) {
+        event.preventDefault();
+    }
     event.stopPropagation();
 
     const parts = [];
@@ -239,9 +240,9 @@ function handleKeyCapture(event) {
 
     captureError.value = '';
 
-    // 显示并通过 blur 触发持久化
+    // 先显示结果，再停止捕获并持久化
     shortcutDisplay.value = accelerator;
-    capturing = false;
+    stopCapture();
 
     // 立即持久化
     saveShortcut(accelerator);
