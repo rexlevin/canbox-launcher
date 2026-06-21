@@ -308,13 +308,17 @@ export const useLauncherStore = defineStore('launcher', () => {
 
     /**
      * 按需加载应用图标（仅对无缓存的图标发起 IPC）
-     * @param {Object} app - 应用对象
+     *
+     * 传入 app 对象给 readIcon，由 preload 侧按需解析图标路径（resolveAppIcon）
+     * 首次调用时自动解析并缓存到 app.iconPath，后续调用直接使用缓存路径。
+     *
+     * @param {Object} app - 应用对象（含 icon / desktopPath 字段）
      */
     async function loadAppIcon(app) {
         if (iconCache.value[app.id] !== undefined) return;
 
-        const iconPath = app.iconPath;
-        if (!iconPath) {
+        // 无图标名称（.desktop 中未定义 Icon=），跳过
+        if (!app.icon) {
             iconCache.value[app.id] = DEFAULT_APP_ICON;
             return;
         }
@@ -326,7 +330,7 @@ export const useLauncherStore = defineStore('launcher', () => {
         }
 
         try {
-            const dataUri = await api.readIcon(iconPath);
+            const dataUri = await api.readIcon(app);
             iconCache.value[app.id] = dataUri || DEFAULT_APP_ICON;
         } catch (e) {
             iconCache.value[app.id] = DEFAULT_APP_ICON;

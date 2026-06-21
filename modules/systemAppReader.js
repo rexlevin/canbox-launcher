@@ -3,20 +3,58 @@
  *
  * 解析 Linux .desktop 文件，获取系统已安装的应用列表。
  * 需要 Node.js 环境（fs, path, os），不可在浏览器中直接使用。
+ *
+ * v2: 全异步 I/O + 延迟图标路径解析
+ * - getSystemApplications() 使用 fs.promises 异步读取，不阻塞事件循环
+ * - parseDesktopContent() 仅解析元数据，不解析图标路径
+ * - resolveAppIcon() 按需解析单个应用的图标路径（首次调用时）
  */
 
 const fs = require('fs');
+const fsp = require('fs').promises;
 const path = require('path');
 const os = require('os');
 
+// ================================================================
+// 工具函数
+// ================================================================
+
 /**
- * 解析 .desktop 文件
- * @param {string} filePath - .desktop 文件路径
- * @returns {Object|null} 应用信息
+ * 清理 Exec 命令中的 .desktop 占位符
  */
-function parseDesktopFile(filePath) {
+function cleanupExecCommand(exec) {
+    return exec
+        .replace(/%[fFuUdDnNickvm]/g, '')
+        .replace(/%%/g, '%')
+        .trim();
+}
+
+/**
+ * 判断 desktop 文件是否来自 Flatpak 目录
+ */
+function isFlatpakDesktopFile(filePath) {
+    return filePath.includes('/flatpak/');
+}
+
+/**
+ * 从 Flatpak desktop 文件路径中提取应用 ID
+ */
+function extractFlatpakAppId(filePath) {
+    return path.basename(filePath, '.desktop');
+}
+
+// ================================================================
+// .desktop 文件解析（纯元数据，不含图标路径解析）
+// ================================================================
+
+/**
+ * 从 .desktop 文件内容解析应用元数据（不解析图标路径）
+ * @param {string} content - .desktop 文件文本内容
+ * @param {string} filePath - .desktop 文件路径
+ * @returns {Object|null} 应用信息，iconPath 始终为 null
+ */
+function parseDesktopContent(content, filePath) {
     try {
-        const content = fs.readFileSync(filePath, 'utf8');
         const lines = content.split('\n');
 
         const app = {
@@ -26,7 +64,8 @@ function parseDesktopFile(filePath) {
             icon: '',
             comment: '',
             source: 'system',
-            desktopPath: filePath
+            desktopPath: filePath,
+            iconPath: null  // 延迟解析，由 resolveAppIcon() 按需填充
         };
 
         let inDesktopEntry = false;
@@ -69,75 +108,34 @@ function parseDesktopFile(filePath) {
         }
 
         app.exec = cleanupExecCommand(app.exec);
-        app.iconPath = resolveIconPath(app.icon);
-
-        // Flatpak 应用回退
-        if (!app.iconPath && isFlatpakDesktopFile(filePath)) {
-            const appId = extractFlatpakAppId(filePath);
-            if (appId) {
-                app.iconPath = findFlatpakIcon(appId, app.icon);
-            }
-        }
-
         return app;
     } catch (error) {
-        console.error('[SystemAppReader] 解析 .desktop 文件失败:', filePath, error.message);
+        console.warn('[SystemAppReader] 解析 .desktop 内容失败:', filePath, error.message);
         return null;
     }
 }
 
+// ================================================================
+// 图标路径解析（同步，按需调用，单个应用耗时 < 20ms）
+// ================================================================
+
 /**
- * 清理 Exec 命令中的 .desktop 占位符
+ * 图标目录列表缓存：避免对同一目录重复 readdirSync
  */
-function cleanupExecCommand(exec) {
-    return exec
-        .replace(/%[fFuUdDnNickvm]/g, '')
-        .replace(/%%/g, '%')
-        .trim();
-}
+const _iconDirCache = new Map();
 
 /**
- * 解析图标路径
- */
-function resolveIconPath(iconName) {
-    if (!iconName) return null;
-
-    if (path.isAbsolute(iconName)) {
-        if (fs.existsSync(iconName)) return iconName;
-        for (const ext of ['.png', '.svg', '.xpm', '.ico']) {
-            if (fs.existsSync(iconName + ext)) return iconName + ext;
-        }
-        return null;
-    }
-
-    const searchDirs = [
-        path.join(os.homedir(), '.local/share/icons'),
-        path.join(os.homedir(), '.icons'),
-        path.join(os.homedir(), '.local/share/flatpak/exports/share/icons'),
-        '/usr/share/icons',
-        '/usr/share/pixmaps',
-        '/var/lib/flatpak/exports/share/icons'
-    ];
-
-    const extensions = ['.png', '.svg', '.xpm', '.ico', ''];
-
-    for (const dir of searchDirs) {
-        if (!fs.existsSync(dir)) continue;
-        const found = findIconInDir(dir, iconName, extensions, 5);
-        if (found) return found;
-    }
-
-    return null;
-}
-
-/**
- * 在目录中递归查找图标文件
+ * 在目录中递归查找图标文件（同步，带缓存）
  */
 function findIconInDir(dir, iconName, extensions, maxDepth) {
     if (maxDepth <= 0) return null;
 
     try {
-        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        let entries = _iconDirCache.get(dir);
+        if (!entries) {
+            entries = fs.readdirSync(dir, { withFileTypes: true });
+            _iconDirCache.set(dir, entries);
+        }
 
         for (const entry of entries) {
             const fullPath = path.join(dir, entry.name);
@@ -161,17 +159,41 @@ function findIconInDir(dir, iconName, extensions, maxDepth) {
 }
 
 /**
- * 判断 desktop 文件是否来自 Flatpak 目录
+ * 解析单个图标的实际文件路径
+ * @param {string} iconName - .desktop 中的 Icon= 值
+ * @returns {string|null} 图标文件的绝对路径
  */
-function isFlatpakDesktopFile(filePath) {
-    return filePath.includes('/flatpak/');
-}
+function resolveIconPath(iconName) {
+    if (!iconName) return null;
 
-/**
- * 从 Flatpak desktop 文件路径中提取应用 ID
- */
-function extractFlatpakAppId(filePath) {
-    return path.basename(filePath, '.desktop');
+    // 绝对路径：直接验证存在
+    if (path.isAbsolute(iconName)) {
+        if (fs.existsSync(iconName)) return iconName;
+        for (const ext of ['.png', '.svg', '.xpm', '.ico']) {
+            if (fs.existsSync(iconName + ext)) return iconName + ext;
+        }
+        return null;
+    }
+
+    // 相对路径：在标准图标目录中搜索
+    const searchDirs = [
+        path.join(os.homedir(), '.local/share/icons'),
+        path.join(os.homedir(), '.icons'),
+        path.join(os.homedir(), '.local/share/flatpak/exports/share/icons'),
+        '/usr/share/icons',
+        '/usr/share/pixmaps',
+        '/var/lib/flatpak/exports/share/icons'
+    ];
+
+    const extensions = ['.png', '.svg', '.xpm', '.ico', ''];
+
+    for (const dir of searchDirs) {
+        if (!fs.existsSync(dir)) continue;
+        const found = findIconInDir(dir, iconName, extensions, 5);
+        if (found) return found;
+    }
+
+    return null;
 }
 
 /**
@@ -195,10 +217,43 @@ function findFlatpakIcon(appId, iconName) {
 }
 
 /**
- * 获取系统应用列表
- * @returns {Array} 应用列表
+ * 按需解析应用的图标路径（首次调用时解析，结果缓存在 app.iconPath 上）
+ * @param {Object} app - 应用对象（需含 icon / desktopPath 字段）
+ * @returns {string|null} 图标文件路径
  */
-function getSystemApplications() {
+function resolveAppIcon(app) {
+    if (app.iconPath) return app.iconPath;
+    if (!app.icon) return null;
+
+    app.iconPath = resolveIconPath(app.icon);
+
+    // Flatpak 应用回退
+    if (!app.iconPath && isFlatpakDesktopFile(app.desktopPath)) {
+        const appId = extractFlatpakAppId(app.desktopPath);
+        if (appId) {
+            app.iconPath = findFlatpakIcon(appId, app.icon);
+        }
+    }
+
+    return app.iconPath;
+}
+
+// ================================================================
+// 系统应用扫描（全异步 I/O）
+// ================================================================
+
+/**
+ * 获取系统应用列表
+ *
+ * v2 改进：
+ * - 使用 fs.promises 异步 I/O，不阻塞事件循环
+ * - .desktop 文件解析不再包含图标路径搜索（延迟到 resolveAppIcon()）
+ * - 每次批量处理最多 50 个文件，避免同时打开过多文件句柄
+ *
+ * @returns {Promise<Array>} 应用列表（iconPath 字段需要 resolveAppIcon() 按需填充）
+ */
+async function getSystemApplications() {
+    const tStart = Date.now();
     const apps = [];
     const seenIds = new Set();
 
@@ -209,32 +264,66 @@ function getSystemApplications() {
         path.join(os.homedir(), '.local/share/flatpak/exports/share/applications')
     ];
 
+    // Step 1: 收集所有 .desktop 文件路径
+    const desktopFiles = [];
+
     for (const dir of dirs) {
-        if (!fs.existsSync(dir)) continue;
+        try {
+            await fsp.access(dir);
+        } catch {
+            continue;
+        }
 
         let files;
         try {
-            files = fs.readdirSync(dir).filter(f => f.endsWith('.desktop'));
+            files = (await fsp.readdir(dir)).filter(f => f.endsWith('.desktop'));
         } catch (e) {
             console.warn('[SystemAppReader] 无法读取目录:', dir);
             continue;
         }
 
-        for (const file of files) {
-            const filePath = path.join(dir, file);
-            const app = parseDesktopFile(filePath);
+        console.log('[SystemAppReader] 目录', dir, '有', files.length, '个 .desktop 文件');
 
+        for (const file of files) {
+            desktopFiles.push({ dir, file });
+        }
+    }
+
+    // Step 2: 异步批量解析 .desktop 文件（每次最多 50 个并发）
+    const BATCH_SIZE = 50;
+
+    for (let i = 0; i < desktopFiles.length; i += BATCH_SIZE) {
+        const batch = desktopFiles.slice(i, i + BATCH_SIZE);
+        const results = await Promise.all(
+            batch.map(async ({ dir, file }) => {
+                const filePath = path.join(dir, file);
+                try {
+                    const content = await fsp.readFile(filePath, 'utf8');
+                    const app = parseDesktopContent(content, filePath);
+                    if (app) app._sourceDir = dir;
+                    return app;
+                } catch (e) {
+                    console.warn('[SystemAppReader] 读取文件失败:', filePath, e.message);
+                    return null;
+                }
+            })
+        );
+
+        for (const app of results) {
             if (app && !seenIds.has(app.id)) {
                 seenIds.add(app.id);
-                app._sourceDir = dir;
                 apps.push(app);
             }
         }
     }
 
-    console.log('[SystemAppReader] 读取到', apps.length, '个系统应用');
+    console.log('[SystemAppReader] 读取到', apps.length, '个系统应用, 耗时:', (Date.now() - tStart), 'ms');
     return apps;
 }
+
+// ================================================================
+// 图标文件读取
+// ================================================================
 
 /**
  * 读取图标文件为 base64
@@ -250,9 +339,9 @@ function readIconAsBase64(iconPath) {
         const ext = path.extname(iconPath).toLowerCase();
         const mimeType = ext === '.svg' ? 'image/svg+xml'
             : ext === '.png' ? 'image/png'
-            : ext === '.ico' ? 'image/x-icon'
-            : ext === '.xpm' ? 'image/x-xpixmap'
-            : 'image/png';
+                : ext === '.ico' ? 'image/x-icon'
+                    : ext === '.xpm' ? 'image/x-xpixmap'
+                        : 'image/png';
 
         const data = fs.readFileSync(iconPath);
         return `data:${mimeType};base64,${data.toString('base64')}`;
@@ -264,6 +353,7 @@ function readIconAsBase64(iconPath) {
 
 module.exports = {
     getSystemApplications,
-    parseDesktopFile,
+    parseDesktopContent,
+    resolveAppIcon,
     readIconAsBase64
 };

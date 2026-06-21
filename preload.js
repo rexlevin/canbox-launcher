@@ -23,7 +23,7 @@
  */
 const { contextBridge } = require('electron');
 const { exec } = require('child_process');
-const { getSystemApplications, readIconAsBase64 } = require('./modules/systemAppReader');
+const { getSystemApplications, readIconAsBase64, resolveAppIcon } = require('./modules/systemAppReader');
 
 canbox.hello();
 
@@ -92,35 +92,38 @@ const launcherApi = {
      * 扫描系统应用，排序后保存两份缓存
      *
      * 内部流程：
-     * 1. 扫描全部 .desktop 文件
+     * 1. 异步扫描全部 .desktop 文件（仅解析元数据，不解析图标路径）
      * 2. 过滤掉 canbox 自身
      * 3. 按名称 localeCompare('zh-CN') 排序（中文按拼音）
-     * 4. 保存 fullAppCache（全部应用，不含图标）
-     * 5. 取前5个，读取图标 base64，保存 defaultAppsCache
+     * 4. 保存 appCache（全部应用元数据，不含图标路径）
+     * 5. 取前5个，按需解析图标路径 + 读取 base64，保存 defaultAppsCache
      *
-     * 使用 setImmediate 推迟重型 I/O，避免阻塞 preload 线程
+     * v2: 全异步 I/O，不阻塞事件循环；图标路径延迟到使用时才解析
      *
      * @returns {Promise<{ apps: Array, defaultApps: Array }>}
-     *   apps - 全部排序后的应用列表（不含 iconBase64）
-     *   defaultApps - 前5个应用（含 iconBase64）
+     *   apps - 全部排序后的应用列表（iconPath 可能为 null）
+     *   defaultApps - 前5个应用（含 iconBase64、iconPath）
      */
-    getApps: () => new Promise((resolve) => {
-        setImmediate(() => {
-            try {
-                const apps = getSystemApplications();
-                const filtered = apps.filter(app => app.id.toLowerCase() !== 'canbox');
+    getApps: async () => {
+        try {
+            const apps = await getSystemApplications();
 
-                // 按名称排序，使用 zh-CN localeCompare 让中文按拼音排序
-                filtered.sort((a, b) =>
-                    a.name.localeCompare(b.name, 'zh-CN', { sensitivity: 'base' })
-                );
+            const filtered = apps.filter(app => app.id.toLowerCase() !== 'canbox');
 
-                // 保存全部应用缓存（不含图标，轻量）
-                saveAppCache(filtered);
+            // 按名称排序，使用 zh-CN localeCompare 让中文按拼音排序
+            filtered.sort((a, b) =>
+                a.name.localeCompare(b.name, 'zh-CN', { sensitivity: 'base' })
+            );
 
-                // 取前5个，读取图标 base64
-                const top5 = filtered.slice(0, 5);
-                const top5WithIcons = top5.map(app => ({
+            // 保存全部应用缓存（仅元数据，不含图标路径）
+            saveAppCache(filtered);
+
+            // 取前5个，按需解析图标路径 + 读取图标 base64
+            const top5 = filtered.slice(0, 5);
+            const top5WithIcons = top5.map(app => {
+                const resolvedPath = resolveAppIcon(app);
+                const iconBase64 = resolvedPath ? readIconAsBase64(resolvedPath) : null;
+                return {
                     id: app.id,
                     name: app.name,
                     exec: app.exec,
@@ -129,19 +132,18 @@ const launcherApi = {
                     comment: app.comment,
                     source: app.source,
                     desktopPath: app.desktopPath,
-                    iconBase64: app.iconPath ? readIconAsBase64(app.iconPath) : null
-                }));
+                    iconBase64
+                };
+            });
 
-                // 保存默认应用缓存（含图标 base64）
-                saveDefaultAppsCache(top5WithIcons);
+            saveDefaultAppsCache(top5WithIcons);
 
-                resolve({ apps: filtered, defaultApps: top5WithIcons });
-            } catch (err) {
-                console.error('[Launcher preload] 扫描系统应用失败:', err);
-                resolve({ apps: [], defaultApps: [] });
-            }
-        });
-    }),
+            return { apps: filtered, defaultApps: top5WithIcons };
+        } catch (err) {
+            console.error('[Launcher preload] 扫描系统应用失败:', err);
+            return { apps: [], defaultApps: [] };
+        }
+    },
 
     /**
      * 获取全部应用缓存（不含图标，用于搜索）
@@ -190,11 +192,22 @@ const launcherApi = {
 
     /**
      * 读取图标文件为 base64 data URI
-     * @param {string} iconPath - 图标文件路径
+     *
+     * 支持两种调用方式：
+     * - readIcon(path)    直接传入图标文件路径
+     * - readIcon(app)     传入应用对象（含 icon / desktopPath 字段），按需解析图标路径再读取
+     *
+     * @param {string|Object} appOrPath - 图标路径或应用对象
      * @returns {Promise<string|null>}
      */
-    readIcon: async (iconPath) => {
-        return readIconAsBase64(iconPath);
+    readIcon: async (appOrPath) => {
+        if (typeof appOrPath === 'string') {
+            return readIconAsBase64(appOrPath);
+        }
+        // 应用对象：按需解析图标路径（首次调用时自动缓存到 app.iconPath）
+        const resolvedPath = resolveAppIcon(appOrPath);
+        if (!resolvedPath) return null;
+        return readIconAsBase64(resolvedPath);
     },
 
     /**

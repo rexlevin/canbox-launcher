@@ -147,15 +147,30 @@ function handleIconError(event) {
 }
 
 /**
- * 窗口失去焦点时隐藏（仅在窗口获得过至少一次 focus 后生效）
+ * 窗口失去焦点时隐藏
+ *
+ * 防止冷启动时误触发：Linux frame:false 窗口 show()+focus() 后，
+ * 被抢走焦点的应用可能立即抢回 → focus→blur 秒级序列。
+ * 用 500ms grace period 延迟启用 blur 自动隐藏。
  */
-let receivedFirstFocus = false;
+let focusEnabled = false;
+let focusEnableTimer = null;
+
+function scheduleFocusEnable() {
+    focusEnabled = false;
+    clearTimeout(focusEnableTimer);
+    focusEnableTimer = setTimeout(() => {
+        focusEnabled = true;
+    }, 500);
+}
+
 function handleWindowBlur() {
-    if (!receivedFirstFocus) return;
+    if (!focusEnabled) return;
     store.hide();
 }
+
 function handleWindowFocus() {
-    receivedFirstFocus = true;
+    scheduleFocusEnable();
 }
 
 // 仅加载当前可见结果的图标（懒加载，避免一次性加载所有图标阻塞 I/O）
@@ -168,7 +183,11 @@ onMounted(async () => {
     window.addEventListener('focus', handleWindowFocus);
     window.addEventListener('blur', handleWindowBlur);
 
-    // 1. 并行加载配置和缓存（两次轻量 IPC，极快）
+    // 冷启动时 scheduleFocusEnable 先启动计时器：如果 500ms 内没有 focus，
+    // 也启用 blur 自动隐藏（防止始终收不到 focus 导致永远不隐藏）
+    scheduleFocusEnable();
+
+    // 1. 并行加载配置和缓存
     await Promise.all([
         store.loadConfig(),
         store.loadCache()
@@ -201,6 +220,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+    clearTimeout(focusEnableTimer);
     document.removeEventListener('keydown', handleKeydown);
     window.removeEventListener('focus', handleWindowFocus);
     window.removeEventListener('blur', handleWindowBlur);
