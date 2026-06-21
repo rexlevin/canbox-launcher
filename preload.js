@@ -232,7 +232,142 @@ const launcherApi = {
         set: (name, key, value) => {
             return canbox.store.set(name, key, value);
         }
+    },
+
+    /**
+     * 注册全局快捷键（通过 canbox.shortcut API → GlobalShortcutManager）
+     *
+     * canbox.shortcut.register() 内部流程：
+     * 1. 调用 ipcRenderer.invoke('shortcut-register', { accelerator, appId, options })
+     * 2. api.js → GlobalShortcutManager.register(accelerator, appId, mode)
+     * 3. 默认 mode='focus'：触发时自动 focus/show 当前 APP 窗口
+     *
+     * @param {string} accelerator - Electron accelerator 字符串，如 'Alt+Space'
+     * @returns {Promise<{success: boolean, reason?: string, occupiedBy?: string}>}
+     */
+    registerShortcut: async (accelerator) => {
+        console.log('[Launcher preload] registerShortcut called, accelerator:', accelerator);
+        if (!accelerator) {
+            console.warn('[Launcher preload] registerShortcut: empty accelerator, skipped');
+            return { success: false, reason: 'empty-accelerator' };
+        }
+        try {
+            const result = await canbox.shortcut.register(accelerator);
+            console.log('[Launcher preload] registerShortcut result:', JSON.stringify(result));
+            return result;
+        } catch (err) {
+            console.error('[Launcher preload] registerShortcut error:', err);
+            return { success: false, reason: err.message };
+        }
+    },
+
+    /**
+     * 注销全局快捷键
+     * @param {string} accelerator - Electron accelerator 字符串
+     * @returns {Promise<{success: boolean}>}
+     */
+    unregisterShortcut: async (accelerator) => {
+        console.log('[Launcher preload] unregisterShortcut called, accelerator:', accelerator);
+        if (!accelerator) {
+            console.warn('[Launcher preload] unregisterShortcut: empty accelerator, skipped');
+            return { success: false };
+        }
+        try {
+            const result = await canbox.shortcut.unregister(accelerator);
+            console.log('[Launcher preload] unregisterShortcut result:', JSON.stringify(result));
+            return result;
+        } catch (err) {
+            console.error('[Launcher preload] unregisterShortcut error:', err);
+            return { success: false };
+        }
+    },
+
+    /**
+     * 检查快捷键是否已成功注册
+     * @param {string} accelerator - Electron accelerator 字符串
+     * @returns {Promise<boolean>}
+     */
+    isShortcutRegistered: async (accelerator) => {
+        if (!accelerator) return false;
+        try {
+            return await canbox.shortcut.isRegistered(accelerator);
+        } catch (err) {
+            console.error('[Launcher preload] isShortcutRegistered error:', err);
+            return false;
+        }
+    },
+
+    /**
+     * 从 electronStore 读取已保存的快捷键
+     * @returns {Promise<string>}
+     */
+    getSavedShortcut: async () => {
+        try {
+            const saved = await canbox.store.get('launcher', 'shortcut');
+            console.log('[Launcher preload] getSavedShortcut:', saved || '(none)');
+            return saved || '';
+        } catch (err) {
+            console.error('[Launcher preload] getSavedShortcut error:', err);
+            return '';
+        }
+    },
+
+    /**
+     * 使用默认浏览器打开 URL
+     * @param {string} url - 要打开的 URL
+     */
+    openUrl: (url) => {
+        console.log('[Launcher preload] openUrl:', url);
+        try {
+            canbox.openUrl(url);
+        } catch (err) {
+            console.error('[Launcher preload] openUrl error:', err);
+        }
     }
 };
 
-contextBridge.exposeInMainWorld('__launcherApi', launcherApi);
+/**
+ * 窗口显示回调注册
+ */
+let __onShownCallback = null;
+
+// 在 preload 中拦截 canbox.shortcut.onTriggered，当全局快捷键触发时通知渲染进程
+canbox.shortcut.onTriggered((accelerator) => {
+    console.log('[Launcher preload] global shortcut triggered:', accelerator);
+    if (typeof __onShownCallback === 'function') {
+        __onShownCallback();
+    }
+});
+
+// 为渲染进程提供 onShown 注册接口
+const launcherApiForBridge = {
+    ...launcherApi,
+    /**
+     * 注册窗口显示时的回调（全局快捷键触发时调用）
+     * @param {Function} callback
+     */
+    onShown: (callback) => {
+        __onShownCallback = callback;
+    }
+};
+
+contextBridge.exposeInMainWorld('__launcherApi', launcherApiForBridge);
+
+// 启动时自动加载并注册已保存的快捷键
+(async () => {
+    try {
+        const saved = await canbox.store.get('launcher', 'shortcut');
+        if (saved) {
+            console.log('[Launcher preload] 启动时加载快捷键:', saved);
+            const result = await canbox.shortcut.register(saved);
+            console.log('[Launcher preload] 启动注册快捷键结果:', JSON.stringify(result));
+            if (!result.success) {
+                console.warn('[Launcher preload] 快捷键注册失败:', result.reason || result.msg);
+            }
+        } else {
+            console.log('[Launcher preload] 无已保存的快捷键，跳过注册');
+        }
+    } catch (err) {
+        console.error('[Launcher preload] 启动快捷键注册异常:', err);
+    }
+})();

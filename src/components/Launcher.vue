@@ -121,7 +121,12 @@ function handleKeydown(event) {
             break;
         case 'Escape':
             event.preventDefault();
-            store.hide();
+            if (store.showSettings) {
+                // 在设置界面按 Esc → 回到主界面
+                store.toggleSettings();
+            } else {
+                store.hide();
+            }
             break;
     }
 }

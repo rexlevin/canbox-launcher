@@ -257,16 +257,44 @@ function clearShortcut() {
 }
 
 /**
- * 保存快捷键到 electronStore
+ * 保存快捷键到 electronStore 并注册全局快捷键
  */
 async function saveShortcut(accelerator) {
+    const api = getLauncherApi();
     const storeApi = getStoreApi();
-    if (!storeApi) return;
+    if (!storeApi || !api) return;
+
+    console.log('[SettingsPanel] saveShortcut called, accelerator:', accelerator);
 
     try {
+        // 1. 持久化到 electronStore
         await storeApi.set('launcher', 'shortcut', accelerator);
+        console.log('[SettingsPanel] 快捷键已保存到 store:', accelerator);
+
+        // 2. 调用 canbox.shortcut API 注册全局快捷键
+        if (accelerator) {
+            const result = await api.registerShortcut(accelerator);
+            console.log('[SettingsPanel] 全局快捷键注册结果:', JSON.stringify(result));
+            if (!result.success) {
+                const reason = result.reason || '未知错误';
+                if (reason === 'occupied') {
+                    captureError.value = '快捷键已被 ' + (result.occupiedBy || '其他应用') + ' 占用';
+                } else if (reason === 'system-occupied') {
+                    captureError.value = '快捷键已被系统占用';
+                } else {
+                    captureError.value = '快捷键注册失败: ' + reason;
+                }
+            } else {
+                captureError.value = '';
+                console.log('[SettingsPanel] 全局快捷键注册成功 ✓');
+            }
+        } else {
+            // 清空快捷键：先注销旧的
+            await api.unregisterShortcut(shortcutDisplay.value || '');
+            console.log('[SettingsPanel] 已清空快捷键');
+        }
     } catch (err) {
-        console.error('[SettingsPanel] 保存快捷键失败:', err);
+        console.error('[SettingsPanel] 保存/注册快捷键失败:', err);
         captureError.value = '保存失败，请重试';
     }
 }

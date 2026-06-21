@@ -19,6 +19,7 @@
 - 点击 ⚙ → 切换为设置面板视图
 - 设置面板底部有"返回"按钮 → 切回搜索视图
 - 再次点击 ⚙ → 关闭设置面板
+- 在设置面板中按 Esc → 回到搜索视图
 
 ## 设置内容
 
@@ -48,7 +49,28 @@
 
 快捷键和外观配置均存储在 `electronStore('launcher', ...)` 中：
 - `launcher.config` = `{ width, fontSize, borderRadius }`
-- `launcher.shortcut` = `"Ctrl+Space"`（accelerator 字符串）
+- `launcher.shortcut` = `"Alt+Space"`（accelerator 字符串）
+
+## 全局快捷键注册
+
+设置快捷键时通过 canbox 平台的 `canbox.shortcut.register(accelerator)` API 注册全局快捷键：
+
+```
+用户设置快捷键 (SettingsPanel)
+    ↓
+1. persist: canbox.store.set('launcher', 'shortcut', accelerator)
+2. register: canbox.shortcut.register(accelerator)
+    ↓ ipcRenderer.invoke('shortcut-register', { accelerator, appId })
+    ↓ api.js → GlobalShortcutManager.register(accelerator, appId, 'focus')
+    ↓ Electron globalShortcut.register(accelerator, callback)
+    ↓
+触发时: GlobalShortcutManager → win.show() + win.focus()
+```
+
+- 注册模式为 `'focus'`：触发时自动显示并聚焦 Launcher 窗口
+- 清除快捷键时调用 `canbox.shortcut.unregister(accelerator)` 注销
+- 启动时自动从 electronStore 读取并注册已保存的快捷键
+- 快捷键被占用时（occupied/system-occupied），界面上显示具体错误提示
 
 ## 快捷键捕获逻辑
 
