@@ -147,10 +147,15 @@ function handleIconError(event) {
 }
 
 /**
- * 窗口失去焦点时隐藏
+ * 窗口失去焦点时隐藏（仅在窗口获得过至少一次 focus 后生效）
  */
+let receivedFirstFocus = false;
 function handleWindowBlur() {
+    if (!receivedFirstFocus) return;
     store.hide();
+}
+function handleWindowFocus() {
+    receivedFirstFocus = true;
 }
 
 // 仅加载当前可见结果的图标（懒加载，避免一次性加载所有图标阻塞 I/O）
@@ -160,6 +165,7 @@ watch(() => store.filteredApps, (apps) => {
 
 onMounted(async () => {
     document.addEventListener('keydown', handleKeydown);
+    window.addEventListener('focus', handleWindowFocus);
     window.addEventListener('blur', handleWindowBlur);
 
     // 1. 并行加载配置和缓存（两次轻量 IPC，极快）
@@ -196,6 +202,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
     document.removeEventListener('keydown', handleKeydown);
+    window.removeEventListener('focus', handleWindowFocus);
     window.removeEventListener('blur', handleWindowBlur);
     store.stopAutoRefresh();
 });

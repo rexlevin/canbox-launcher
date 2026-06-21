@@ -251,23 +251,41 @@ function onGlobalKeydown(event) {
 /**
  * 清除快捷键
  */
-function clearShortcut() {
-    shortcutDisplay.value = '';
+async function clearShortcut() {
+    const oldAccelerator = shortcutDisplay.value;
+    if (!oldAccelerator) return;
     captureError.value = '';
-    saveShortcut('');
+    shortcutDisplay.value = '';
+    await saveShortcut('', oldAccelerator);
 }
 
 /**
  * 保存快捷键到 electronStore 并注册全局快捷键
+ * @param {string} accelerator - 新快捷键 accelerator 字符串（空字符串表示清除）
+ * @param {string} [oldAccelerator] - 旧快捷键，仅在清除时用于准确注销
  */
-async function saveShortcut(accelerator) {
+async function saveShortcut(accelerator, oldAccelerator) {
     const api = getLauncherApi();
     const storeApi = getStoreApi();
     if (!storeApi || !api) return;
 
-    console.log('[SettingsPanel] saveShortcut called, accelerator:', accelerator);
+    console.log('[SettingsPanel] saveShortcut called, accelerator:', accelerator, 'old:', oldAccelerator || '(none)');
 
     try {
+        // 确定需要注销的旧快捷键：优先用显式传入的 oldAccelerator，否则从 store 读取
+        let prevToUnregister = oldAccelerator || '';
+        if (!prevToUnregister && accelerator) {
+            const prev = await storeApi.get('launcher', 'shortcut');
+            if (prev && prev !== accelerator) {
+                prevToUnregister = prev;
+            }
+        }
+        if (prevToUnregister) {
+            console.log('[SettingsPanel] 先注销旧快捷键:', prevToUnregister);
+            const unregResult = await api.unregisterShortcut(prevToUnregister);
+            console.log('[SettingsPanel] 注销旧快捷键结果:', JSON.stringify(unregResult));
+        }
+
         // 1. 持久化到 electronStore
         await storeApi.set('launcher', 'shortcut', accelerator);
         console.log('[SettingsPanel] 快捷键已保存到 store:', accelerator);
@@ -290,8 +308,6 @@ async function saveShortcut(accelerator) {
                 console.log('[SettingsPanel] 全局快捷键注册成功 ✓');
             }
         } else {
-            // 清空快捷键：先注销旧的
-            await api.unregisterShortcut(shortcutDisplay.value || '');
             console.log('[SettingsPanel] 已清空快捷键');
         }
     } catch (err) {

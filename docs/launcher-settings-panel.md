@@ -68,9 +68,12 @@
 ```
 
 - 注册模式为 `'focus'`：触发时自动显示并聚焦 Launcher 窗口
-- 清除快捷键时调用 `canbox.shortcut.unregister(accelerator)` 注销
+- 清除快捷键时调用 `canbox.shortcut.unregister(accelerator)` 注销（修复：使用旧值而非清空后的空值）
+- 修改快捷键时先注销旧组合，再注册新组合
 - 启动时自动从 electronStore 读取并注册已保存的快捷键
 - 快捷键被占用时（occupied/system-occupied），界面上显示具体错误提示
+
+> **跨项目修复**：canbox 主程序 `GlobalShortcutManager._handleFocus` 已增加 `appsDev.json` fallback，确保开发模式下的 APP 快捷键也能冷启动成功。
 
 ## 快捷键捕获逻辑
 
