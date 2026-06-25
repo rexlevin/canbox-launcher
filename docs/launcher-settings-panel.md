@@ -1,5 +1,13 @@
 # Launcher 设置面板
 
+> **归属项目**：`canbox-launcher`（基于 Canbox 平台的 APP 项目，`.canbox-app`）
+>
+> **提案日期**：2026-06-11
+>
+> **完成日期**：2026-06-25
+>
+> **变更类型**：feat
+
 ## 概述
 
 在 Launcher 搜索框右侧放置齿轮图标，点击打开设置面板。
@@ -90,3 +98,23 @@
     ├── 无效 → 显示错误提示
     └── 有效 → 保存到 electronStore → 更新 UI
 ```
+
+---
+
+## 完成摘要
+
+**实施分支**：`feat/launcher-settings-panel`
+
+### 实现概要
+
+为 Launcher APP 新增设置面板功能：
+
+1. **入口**：搜索框右侧齿轮图标 ⚙，点击/再点击/Esc 切换搜索视图与设置面板
+2. **快捷键设置**：捕获组合键输入框，验证至少包含一个修饰键，支持清除和实时修改
+3. **外观设置**：窗口宽度（400-800px）、字体大小（12-24px）、圆角大小（4-24px）滑块，实时预览+持久化
+4. **全局快捷键**：通过 `canbox.shortcut.register/unregister` API 注册/注销，启动时自动恢复
+5. **依赖 canbox 主程序**：`GlobalShortcutManager._handleFocus` 增加 `appsDev.json` fallback 以支持开发模式冷启动
+
+### 验收标准
+
+全部已通过测试验证 ✓
